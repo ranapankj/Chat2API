@@ -211,7 +211,12 @@
     "loginWindowClosed": "登录窗口已关闭",
     "guestAccountNotAllowed": "访客账户不允许登录，请使用真实账户登录",
     "loginWindowAlreadyOpen": "登录窗口已打开",
-    "loggingIn": "登录中..."
+    "loggingIn": "登录中...",
+    "updateModels": "更新模型",
+    "updateModelsSuccess": "模型列表更新成功",
+    "updateModelsFailed": "模型列表更新失败",
+    "updateModelsNotSupported": "该供应商不支持动态更新模型",
+    "updatingModels": "正在更新模型列表..."
   },
   "loginGuide": {
     "getToken": "获取 {{provider}} 凭证",

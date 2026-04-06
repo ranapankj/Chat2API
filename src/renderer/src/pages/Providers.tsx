@@ -238,6 +238,39 @@ export function Providers() {
     }
   }
 
+  const handleUpdateModels = async (providerId: string) => {
+    try {
+      toast({
+        title: t('providers.updatingModels'),
+        description: t('providers.updatingModels'),
+      })
+      
+      const result = await window.electronAPI.providers.updateModels(providerId)
+      
+      if (result.success) {
+        const providers = await window.electronAPI.providers.getAll()
+        store.setProviders(providers)
+        
+        toast({
+          title: t('providers.updateModelsSuccess'),
+          description: `${result.modelsCount} ${t('providers.models').toLowerCase()}`,
+        })
+      } else {
+        toast({
+          title: t('providers.updateModelsFailed'),
+          description: result.error || t('providers.updateModelsNotSupported'),
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: t('providers.updateModelsFailed'),
+        description: error instanceof Error ? error.message : t('providers.operationFailed'),
+        variant: 'destructive',
+      })
+    }
+  }
+
   const handleManageAccounts = (providerId: string) => {
     store.setSelectedProviderId(providerId)
     setViewMode('accounts')
@@ -658,6 +691,7 @@ export function Providers() {
                 onDuplicate={handleDuplicateProvider}
                 onCheckStatus={handleCheckProviderStatus}
                 onManageAccounts={handleManageAccounts}
+                onUpdateModels={handleUpdateModels}
               />
             ))}
           </div>

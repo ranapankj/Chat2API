@@ -16,6 +16,7 @@ import { ConfigManager } from '../store/config'
 import { generateManagementSecret } from '../proxy/middleware/managementAuth'
 import type { Provider, Account, ProxyStatus, ProviderCheckResult, OAuthResult, AuthType, CredentialField, LogLevel, LogEntry, ProviderVendor, AppConfig } from '../../shared/types'
 import type { SystemPrompt, SessionConfig, SessionRecord, ManagementApiConfig } from '../store/types'
+import type { ProviderType } from '../oauth/types'
 
 let proxyServer: ProxyServer | null = null
 let proxyStartTime: number | null = null
@@ -291,6 +292,155 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
     return CustomProviderManager.importProvider(jsonData)
   })
 
+  ipcMain.handle(IpcChannels.PROVIDERS_SYNC_MODELS, async (_, providerId: string): Promise<{
+    success: boolean
+    supportedModels?: string[]
+    modelMappings?: Record<string, string>
+    error?: string
+  }> => {
+    try {
+      const result = await ProviderChecker.fetchProviderModels(providerId)
+      
+      const provider = ProviderManager.getById(providerId)
+      if (provider) {
+        ProviderManager.update(providerId, {
+          supportedModels: result.supportedModels,
+          modelMappings: result.modelMappings,
+        })
+      }
+
+      return {
+        success: true,
+        supportedModels: result.supportedModels,
+        modelMappings: result.modelMappings,
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to sync models',
+      }
+    }
+  })
+
+  ipcMain.handle(IpcChannels.PROVIDERS_UPDATE_MODELS, async (_, providerId: string): Promise<{
+    success: boolean
+    modelsCount?: number
+    error?: string
+  }> => {
+    try {
+      const provider = ProviderManager.getById(providerId)
+      
+      if (!provider) {
+        return {
+          success: false,
+          error: 'Provider not found',
+        }
+      }
+
+      let modelsApiEndpoint: string | undefined
+      let modelsApiHeaders: Record<string, string> | undefined
+
+      if (provider.type === 'builtin') {
+        const builtinConfig = getBuiltinProvider(providerId)
+        if (builtinConfig) {
+          modelsApiEndpoint = builtinConfig.modelsApiEndpoint
+          modelsApiHeaders = builtinConfig.modelsApiHeaders
+        }
+      }
+
+      if (!modelsApiEndpoint) {
+        return {
+          success: false,
+          error: 'This provider does not support dynamic model updates',
+        }
+      }
+
+      // Try to get an active account for authentication (include credentials)
+      const accounts = AccountManager.getByProviderId(providerId, true)
+      const activeAccount = accounts.find(a => a.status === 'active')
+      
+      // Build request headers with optional authentication
+      const requestHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...modelsApiHeaders,
+      }
+      
+      // Add authorization header if account exists
+      if (activeAccount?.credentials?.token) {
+        requestHeaders['Authorization'] = `Bearer ${activeAccount.credentials.token}`
+      }
+      
+      // Add cookie header if account has cookies (required for qwen-ai)
+      if (activeAccount?.credentials?.cookies) {
+        requestHeaders['Cookie'] = activeAccount.credentials.cookies
+      }
+
+      const response = await axios.get(modelsApiEndpoint, {
+        headers: requestHeaders,
+        timeout: 15000,
+        validateStatus: () => true,
+      })
+
+      if (response.status !== 200) {
+        return {
+          success: false,
+          error: `Failed to fetch models: HTTP ${response.status}`,
+        }
+      }
+
+      const models = response.data.data || response.data
+
+      if (!Array.isArray(models) || models.length === 0) {
+        return {
+          success: false,
+          error: 'No models found in the response',
+        }
+      }
+
+      const supportedModels: string[] = []
+      const modelMappings: Record<string, string> = {}
+
+      models.forEach((model: any) => {
+        if (typeof model === 'string') {
+          supportedModels.push(model)
+          modelMappings[model] = model
+        } else if (model && typeof model === 'object') {
+          const modelId = model.id || model.model_id || model.name
+          const modelName = model.name || model.display_name || modelId
+          
+          if (modelId) {
+            supportedModels.push(modelName || modelId)
+            modelMappings[modelName || modelId] = modelId
+          }
+        }
+      })
+
+      if (supportedModels.length === 0) {
+        return {
+          success: false,
+          error: 'Failed to parse models from the response',
+        }
+      }
+
+      ProviderManager.update(providerId, {
+        supportedModels,
+        modelMappings,
+      })
+
+      return {
+        success: true,
+        modelsCount: supportedModels.length,
+      }
+    } catch (error) {
+      console.error('[IPC] Failed to update models:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to update models',
+      }
+    }
+  })
+
   ipcMain.handle(IpcChannels.ACCOUNTS_GET_ALL, async (_, includeCredentials?: boolean): Promise<Account[]> => {
     return AccountManager.getAll(includeCredentials)
   })
@@ -455,7 +605,7 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
     console.log('Starting OAuth login:', providerId, providerType)
     return await oauthManager.startLogin({
       providerId,
-      providerType,
+      providerType: providerType as ProviderType,
     })
   })
 
@@ -465,14 +615,14 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
   })
 
   ipcMain.handle(IpcChannels.OAUTH_LOGIN_WITH_TOKEN, async (_, data: { providerId: string, providerType: ProviderVendor, token: string, realUserID?: string, mimoUserId?: string, mimoPhToken?: string }): Promise<OAuthResult> => {
-    return await oauthManager.loginWithToken(data.providerId, data.providerType, data.token, data.realUserID, data.mimoUserId, data.mimoPhToken)
+    return await oauthManager.loginWithToken(data.providerId, data.providerType as ProviderType, data.token, data.realUserID, data.mimoUserId, data.mimoPhToken)
   })
 
   ipcMain.handle(IpcChannels.OAUTH_START_IN_APP_LOGIN, async (_, data: { providerId: string, providerType: ProviderVendor, timeout?: number }): Promise<OAuthResult> => {
     console.log('Starting in-app OAuth login:', data.providerId, data.providerType)
     const config = storeManager.getConfig()
     const proxyMode = (config as any).oauthProxyMode || 'system'
-    return await oauthManager.startInAppLogin(data.providerId, data.providerType, data.timeout, proxyMode)
+    return await oauthManager.startInAppLogin(data.providerId, data.providerType as ProviderType, data.timeout, proxyMode)
   })
 
   ipcMain.handle(IpcChannels.OAUTH_CANCEL_IN_APP_LOGIN, async (): Promise<void> => {
@@ -485,11 +635,11 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
   })
 
   ipcMain.handle(IpcChannels.OAUTH_VALIDATE_TOKEN, async (_, data: { providerId: string, providerType: ProviderVendor, credentials: Record<string, string> }) => {
-    return await oauthManager.validateToken(data.providerId, data.providerType, data.credentials)
+    return await oauthManager.validateToken(data.providerId, data.providerType as ProviderType, data.credentials)
   })
 
   ipcMain.handle(IpcChannels.OAUTH_REFRESH_TOKEN, async (_, data: { providerId: string, providerType: ProviderVendor, credentials: Record<string, string> }) => {
-    return await oauthManager.refreshToken(data.providerId, data.providerType, data.credentials)
+    return await oauthManager.refreshToken(data.providerId, data.providerType as ProviderType, data.credentials)
   })
 
   ipcMain.handle(IpcChannels.OAUTH_GET_STATUS, async (): Promise<string> => {

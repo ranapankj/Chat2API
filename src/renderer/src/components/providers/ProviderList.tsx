@@ -25,6 +25,7 @@ interface ProviderListProps {
   onCheckAllStatus: () => void
   onManageAccounts: (id: string) => void
   onAddProvider: () => void
+  onUpdateModels?: (id: string) => void
 }
 
 type FilterType = 'all' | 'builtin' | 'custom' | 'enabled' | 'disabled'
@@ -41,6 +42,7 @@ export function ProviderList({
   onCheckAllStatus,
   onManageAccounts,
   onAddProvider,
+  onUpdateModels,
 }: ProviderListProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [filter, setFilter] = useState<FilterType>('all')
@@ -164,6 +166,7 @@ export function ProviderList({
                 onDuplicate={onDuplicate}
                 onCheckStatus={onCheckStatus}
                 onManageAccounts={onManageAccounts}
+                onUpdateModels={onUpdateModels}
               />
             ))}
           </div>

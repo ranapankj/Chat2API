@@ -199,17 +199,17 @@ class StoreManager {
     })
     
     // Update built-in provider configuration fields (force update to keep synchronized)
+    // Note: supportedModels and modelMappings are NOT updated to preserve dynamic model updates
     const updatedProviders = validProviders.map((p: Provider) => {
       if (p.type === 'builtin') {
         const builtinConfig = BUILTIN_PROVIDERS.find(bp => bp.id === p.id)
         if (builtinConfig) {
-        // Force update built-in provider key configuration
+        // Force update built-in provider key configuration, but preserve dynamic model list
           return { 
             ...p, 
             apiEndpoint: builtinConfig.apiEndpoint,
             chatPath: builtinConfig.chatPath,
-            supportedModels: builtinConfig.supportedModels,
-            modelMappings: builtinConfig.modelMappings,
+            // supportedModels and modelMappings are NOT overwritten to preserve dynamic updates
             headers: builtinConfig.headers,
             description: builtinConfig.description,
           }

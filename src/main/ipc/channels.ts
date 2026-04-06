@@ -27,6 +27,8 @@ export const IpcChannels = {
   PROVIDERS_DUPLICATE: 'providers:duplicate',
   PROVIDERS_EXPORT: 'providers:export',
   PROVIDERS_IMPORT: 'providers:import',
+  PROVIDERS_SYNC_MODELS: 'providers:syncModels',
+  PROVIDERS_UPDATE_MODELS: 'providers:updateModels',
 
   ACCOUNTS_GET_ALL: 'accounts:getAll',
   ACCOUNTS_GET_BY_ID: 'accounts:getById',

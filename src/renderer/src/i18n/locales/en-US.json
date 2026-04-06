@@ -211,7 +211,12 @@
     "loginWindowClosed": "Login window was closed",
     "guestAccountNotAllowed": "Guest account not allowed, please login with a real account",
     "loginWindowAlreadyOpen": "A login window is already open",
-    "loggingIn": "Logging in..."
+    "loggingIn": "Logging in...",
+    "updateModels": "Update Models",
+    "updateModelsSuccess": "Model list updated successfully",
+    "updateModelsFailed": "Failed to update model list",
+    "updateModelsNotSupported": "This provider does not support dynamic model updates",
+    "updatingModels": "Updating model list..."
   },
   "loginGuide": {
     "getToken": "Get {{provider}} Credentials",

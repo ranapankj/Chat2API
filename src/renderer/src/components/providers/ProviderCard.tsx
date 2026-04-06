@@ -19,7 +19,8 @@ import {
   Users,
   Plus,
   LogIn,
-  Info
+  Info,
+  Download
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Provider, ProviderStatus } from '@/types/electron'
@@ -55,6 +56,7 @@ interface ProviderCardProps {
   onDuplicate: (id: string) => void
   onCheckStatus: (id: string) => void
   onManageAccounts: (id: string) => void
+  onUpdateModels?: (id: string) => void
   className?: string
 }
 
@@ -75,6 +77,7 @@ export function ProviderCard({
   onDuplicate,
   onCheckStatus,
   onManageAccounts,
+  onUpdateModels,
   className,
 }: ProviderCardProps) {
   const { t } = useTranslation()
@@ -161,6 +164,12 @@ export function ProviderCard({
                 <RefreshCw className="mr-2 h-4 w-4" />
                 {t('providers.checkStatus')}
               </DropdownMenuItem>
+              {isBuiltin && (
+                <DropdownMenuItem onClick={() => onUpdateModels?.(provider.id)}>
+                  <Download className="mr-2 h-4 w-4" />
+                  {t('providers.updateModels')}
+                </DropdownMenuItem>
+              )}
               {!isBuiltin && (
                 <>
                   <DropdownMenuSeparator />

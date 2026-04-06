@@ -94,6 +94,13 @@ const providersAPI = {
   
   import: (jsonData: string): Promise<Provider> => 
     ipcRenderer.invoke(IpcChannels.PROVIDERS_IMPORT, jsonData),
+  
+  updateModels: (providerId: string): Promise<{
+    success: boolean
+    modelsCount?: number
+    error?: string
+  }> => 
+    ipcRenderer.invoke(IpcChannels.PROVIDERS_UPDATE_MODELS, providerId),
 }
 
 const accountsAPI = {
