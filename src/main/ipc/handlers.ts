@@ -14,12 +14,14 @@ import { sessionManager } from '../proxy/sessionManager'
 import { TrayManager } from '../tray/TrayManager'
 import { ConfigManager } from '../store/config'
 import { generateManagementSecret } from '../proxy/middleware/managementAuth'
+import { UpdaterManager } from '../updater'
 import type { Provider, Account, ProxyStatus, ProviderCheckResult, OAuthResult, AuthType, CredentialField, LogLevel, LogEntry, ProviderVendor, AppConfig } from '../../shared/types'
 import type { SystemPrompt, SessionConfig, SessionRecord, ManagementApiConfig } from '../store/types'
 import type { ProviderType } from '../oauth/types'
 
 let proxyServer: ProxyServer | null = null
 let proxyStartTime: number | null = null
+const updaterManager = UpdaterManager.getInstance()
 
 export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Promise<void> {
   try {
@@ -48,6 +50,7 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
   
   if (mainWindow) {
     oauthManager.setMainWindow(mainWindow)
+    updaterManager.initialize(mainWindow)
   }
 
   // Check if auto-start proxy is needed
@@ -825,6 +828,18 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
         error: error instanceof Error ? error.message : String(error),
       }
     }
+  })
+
+  ipcMain.handle(IpcChannels.APP_DOWNLOAD_UPDATE, async (): Promise<void> => {
+    await updaterManager.downloadUpdate()
+  })
+
+  ipcMain.handle(IpcChannels.APP_INSTALL_UPDATE, async (): Promise<void> => {
+    updaterManager.quitAndInstall()
+  })
+
+  ipcMain.handle(IpcChannels.APP_GET_UPDATE_STATUS, async () => {
+    return updaterManager.getStatus()
   })
 
   ipcMain.handle(IpcChannels.APP_MINIMIZE, async (): Promise<void> => {

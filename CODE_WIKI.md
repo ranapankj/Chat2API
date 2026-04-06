@@ -324,6 +324,13 @@ GNU General Public License v3.0。详见 [LICENSE](LICENSE) 文件。
 
 ## 13. 更新日志
 
+### v1.2.0
+- Implemented automatic application update feature
+- Added real-time download progress tracking
+- Added one-click install and restart functionality
+- Improved error handling and user experience
+- Added multi-language support for update UI
+
 ### v1.1.4
 - 新增 Perplexity 提供商支持
 - 改进上下文管理功能
