@@ -16,7 +16,7 @@ const DEEPSEEK_API_BASE = 'https://chat.deepseek.com/api'
 const FAKE_HEADERS = {
   Accept: '*/*',
   'Accept-Encoding': 'gzip, deflate, br, zstd',
-  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
   Origin: 'https://chat.deepseek.com',
   Referer: 'https://chat.deepseek.com/',
   'Sec-Ch-Ua': '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
@@ -29,7 +29,8 @@ const FAKE_HEADERS = {
   'X-App-Version': '20241129.1',
   'X-Client-Locale': 'zh-CN',
   'X-Client-Platform': 'web',
-  'X-Client-Version': '1.6.1',
+  'x-Client-Timezone-Offset': '28800',
+  'X-Client-Version': '1.8.0',
 }
 
 interface TokenInfo {
@@ -173,7 +174,7 @@ export class DeepSeekAdapter {
     const token = await this.acquireToken()
     const result = await axios.post(
       `${DEEPSEEK_API_BASE}/v0/chat_session/create`,
-      { character_id: null },
+      {},
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -189,11 +190,11 @@ export class DeepSeekAdapter {
 
     // Response structure: { code: 0, data: { biz_code: 0, biz_data: { id: "..." } } }
     const bizData = result.data?.data?.biz_data || result.data?.biz_data
-    if (result.status !== 200 || !bizData?.id) {
+    if (result.status !== 200 || !bizData?.chat_session?.id) {
       throw new Error(`Failed to create session: ${result.data?.msg || result.data?.data?.biz_msg || result.status}`)
     }
 
-    const sessionId = bizData.id
+    const sessionId = bizData?.chat_session?.id
     sessionCache.set(cacheKey, { sessionId, createdAt: Date.now() })
 
     return sessionId
@@ -387,6 +388,7 @@ ${message.content || ''}
     // Use request parameters for mode control (OpenAI compatible)
     let searchEnabled = false
     let thinkingEnabled = false
+    let modelType = 'default'
 
     if (request.web_search) {
       searchEnabled = true
@@ -400,6 +402,10 @@ ${message.content || ''}
 
     // Fallback: check model name for backward compatibility
     const modelLower = request.model.toLowerCase()
+
+    if (modelLower.includes('expert')) {
+      modelType = 'expert'
+    }
     if (!searchEnabled && modelLower.includes('search')) {
       searchEnabled = true
       console.log('[DeepSeek] Web search enabled (from model name)')
@@ -422,6 +428,7 @@ ${message.content || ''}
         ref_file_ids: [],
         search_enabled: searchEnabled,
         thinking_enabled: thinkingEnabled,
+        model_type: modelType,
       },
       {
         headers: {
