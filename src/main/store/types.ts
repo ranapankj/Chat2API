@@ -193,6 +193,8 @@ export interface AppConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error'
   /** Log retention days */
   logRetentionDays: number
+  /** Request log persistence configuration */
+  requestLogConfig: RequestLogConfig
   /** Request timeout (milliseconds) */
   requestTimeout: number
   /** Retry count */
@@ -478,6 +480,19 @@ export interface RequestLogEntry {
   errorStack?: string
 }
 
+export interface RequestLogConfig {
+  /** Whether detailed request logs are persisted */
+  enabled: boolean
+  /** Maximum persisted request log entries */
+  maxEntries: number
+  /** Whether request and response bodies are stored */
+  includeBodies: boolean
+  /** Maximum characters persisted for each body field */
+  maxBodyChars: number
+  /** Whether obvious sensitive values are redacted */
+  redactSensitiveData: boolean
+}
+
 /**
  * Daily Statistics Interface
  * Statistics for a single day
@@ -701,6 +716,14 @@ export const DEFAULT_CONTEXT_MANAGEMENT_CONFIG: ContextManagementConfig = {
   executionOrder: ['slidingWindow', 'tokenLimit', 'summary'],
 }
 
+export const DEFAULT_REQUEST_LOG_CONFIG: RequestLogConfig = {
+  enabled: true,
+  maxEntries: 200,
+  includeBodies: false,
+  maxBodyChars: 8000,
+  redactSensitiveData: true,
+}
+
 /**
  * Default Application Configuration
  */
@@ -715,6 +738,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   minimizeToTray: true,
   logLevel: 'info',
   logRetentionDays: 7,
+  requestLogConfig: DEFAULT_REQUEST_LOG_CONFIG,
   requestTimeout: 60000,
   retryCount: 3,
   apiKeys: [],

@@ -94,6 +94,7 @@ export interface AppConfig {
   minimizeToTray: boolean
   logLevel: 'debug' | 'info' | 'warn' | 'error'
   logRetentionDays: number
+  requestLogConfig: RequestLogConfig
   requestTimeout: number
   retryCount: number
   apiKeys: ApiKey[]
@@ -196,6 +197,14 @@ export interface SessionConfig {
   maxMessagesPerSession: number
   deleteAfterTimeout: boolean
   maxSessionsPerAccount: number
+}
+
+export interface RequestLogConfig {
+  enabled: boolean
+  maxEntries: number
+  includeBodies: boolean
+  maxBodyChars: number
+  redactSensitiveData: boolean
 }
 
 export interface ManagementApiConfig {
@@ -345,6 +354,7 @@ export interface ConfigUpdateRequest {
   minimizeToTray?: boolean
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
   logRetentionDays?: number
+  requestLogConfig?: Partial<RequestLogConfig>
   requestTimeout?: number
   retryCount?: number
   enableApiKey?: boolean

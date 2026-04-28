@@ -111,7 +111,16 @@ export const useSettingsStore = create<SettingsState>()(
         const currentConfig = get().config
         if (!currentConfig) return
         
-        const newConfig = { ...currentConfig, ...updates }
+        const newConfig = {
+          ...currentConfig,
+          ...updates,
+          requestLogConfig: updates.requestLogConfig
+            ? {
+                ...currentConfig.requestLogConfig,
+                ...updates.requestLogConfig,
+              }
+            : currentConfig.requestLogConfig,
+        }
         set({ config: newConfig })
         
         try {

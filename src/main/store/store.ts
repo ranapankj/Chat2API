@@ -22,6 +22,7 @@ import {
   DEFAULT_SESSION_CONFIG,
   ChatMessage,
   RequestLogEntry,
+  RequestLogConfig,
   PersistentStatistics,
   DailyStatistics,
   DEFAULT_STATISTICS,
@@ -30,9 +31,12 @@ import {
   DEFAULT_USER_MODEL_OVERRIDES,
   UserModelOverrides,
   CustomModel,
+  DEFAULT_REQUEST_LOG_CONFIG,
 } from './types'
 import { BUILTIN_PROMPTS } from '../data/builtin-prompts'
 import { IpcChannels } from '../ipc/channels'
+import { RequestLogManager } from '../requestLogs/manager'
+import { normalizeRequestLogConfig } from '../requestLogs/types'
 
 // Dynamically import electron-store (ESM module)
 let Store: any = null
@@ -51,6 +55,7 @@ class StoreManager {
   private isInitialized: boolean = false
   private mainWindow: BrowserWindow | null = null
   private initializationError: Error | null = null
+  private requestLogManager: RequestLogManager | null = null
 
   setMainWindow(window: BrowserWindow | null): void {
     this.mainWindow = window
@@ -95,6 +100,7 @@ class StoreManager {
         encryptionKey: this.getEncryptionKey(),
       })
 
+      await this.initializeRequestLogManager(storagePath)
       await this.initializeDefaultProviders()
       this.isInitialized = true
       this.initializationError = null
@@ -111,6 +117,7 @@ class StoreManager {
           defaults: this.getDefaultData(),
           encryptionKey: this.getEncryptionKey(),
         })
+        await this.initializeRequestLogManager(storagePath)
         this.isInitialized = true
         this.initializationError = null
         console.log('[Store] Successfully recovered from corrupted data')
@@ -185,6 +192,31 @@ class StoreManager {
       sessions: [],
       statistics: DEFAULT_STATISTICS,
       userModelOverrides: DEFAULT_USER_MODEL_OVERRIDES,
+    }
+  }
+
+  private async initializeRequestLogManager(storagePath: string): Promise<void> {
+    const config = this.normalizeConfig(this.store?.get('config') || DEFAULT_CONFIG)
+    this.requestLogManager = new RequestLogManager({
+      storageDir: join(storagePath, 'request-logs'),
+      config: config.requestLogConfig,
+    })
+    await this.requestLogManager.initialize()
+
+    const legacyRequestLogs = this.store?.get('requestLogs') || []
+    if (legacyRequestLogs.length > 0) {
+      await this.requestLogManager.migrateLegacyLogs(legacyRequestLogs)
+      this.store?.set('requestLogs', [])
+    }
+  }
+
+  private normalizeConfig(config: AppConfig): AppConfig {
+    return {
+      ...DEFAULT_CONFIG,
+      ...config,
+      requestLogConfig: normalizeRequestLogConfig(
+        config.requestLogConfig || DEFAULT_REQUEST_LOG_CONFIG,
+      ),
     }
   }
 
@@ -613,7 +645,7 @@ class StoreManager {
    */
   getConfig(): AppConfig {
     this.ensureInitialized()
-    return this.store!.get('config') || DEFAULT_CONFIG
+    return this.normalizeConfig(this.store!.get('config') || DEFAULT_CONFIG)
   }
 
   /**
@@ -621,7 +653,9 @@ class StoreManager {
    */
   setConfig(config: AppConfig): void {
     this.ensureInitialized()
-    this.store!.set('config', config)
+    const normalized = this.normalizeConfig(config)
+    this.store!.set('config', normalized)
+    this.requestLogManager?.setConfig(normalized.requestLogConfig)
   }
 
   /**
@@ -629,7 +663,7 @@ class StoreManager {
    */
   updateConfig(updates: Partial<AppConfig>): AppConfig {
     this.ensureInitialized()
-    const currentConfig = this.store!.get('config') || DEFAULT_CONFIG
+    const currentConfig = this.getConfig()
     const newConfig = {
       ...currentConfig,
       ...updates,
@@ -649,9 +683,18 @@ class StoreManager {
         ...updates.sessionConfig,
       }
     }
-    
-    this.store!.set('config', newConfig)
-    return newConfig
+
+    if (updates.requestLogConfig) {
+      newConfig.requestLogConfig = normalizeRequestLogConfig({
+        ...currentConfig.requestLogConfig,
+        ...updates.requestLogConfig,
+      })
+    }
+
+    const normalized = this.normalizeConfig(newConfig)
+    this.store!.set('config', normalized)
+    this.requestLogManager?.setConfig(normalized.requestLogConfig)
+    return normalized
   }
 
   /**
@@ -660,6 +703,7 @@ class StoreManager {
   resetConfig(): AppConfig {
     this.ensureInitialized()
     this.store!.set('config', DEFAULT_CONFIG)
+    this.requestLogManager?.setConfig(DEFAULT_CONFIG.requestLogConfig)
     return DEFAULT_CONFIG
   }
 
@@ -885,22 +929,7 @@ class StoreManager {
    */
   addRequestLog(entry: Omit<RequestLogEntry, 'id'>): RequestLogEntry {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
-    
-    const newEntry: RequestLogEntry = {
-      ...entry,
-      id: this.generateId(),
-    }
-    
-    requestLogs.push(newEntry)
-    
-    const config = this.getConfig()
-    const maxLogs = config.logRetentionDays * 500
-    if (requestLogs.length > maxLogs) {
-      requestLogs.splice(0, requestLogs.length - maxLogs)
-    }
-    
-    this.store!.set('requestLogs', requestLogs)
+    const newEntry = this.getRequestLogManager().addRequestLog(entry)
 
     this.mainWindow?.webContents.send(IpcChannels.REQUEST_LOGS_NEW, newEntry)
 
@@ -912,15 +941,7 @@ class StoreManager {
    */
   updateRequestLog(id: string, updates: Partial<RequestLogEntry>): boolean {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
-
-    const index = requestLogs.findIndex((l: RequestLogEntry) => l.id === id)
-    if (index === -1) return false
-
-    requestLogs[index] = { ...requestLogs[index], ...updates }
-    this.store!.set('requestLogs', requestLogs)
-
-    return true
+    return this.getRequestLogManager().updateRequestLog(id, updates)
   }
 
   /**
@@ -928,23 +949,7 @@ class StoreManager {
    */
   getRequestLogs(limit?: number, filter?: { status?: 'success' | 'error'; providerId?: string }): RequestLogEntry[] {
     this.ensureInitialized()
-    let requestLogs = this.store!.get('requestLogs') || []
-    
-    if (filter?.status) {
-      requestLogs = requestLogs.filter((l: RequestLogEntry) => l.status === filter.status)
-    }
-    
-    if (filter?.providerId) {
-      requestLogs = requestLogs.filter((l: RequestLogEntry) => l.providerId === filter.providerId)
-    }
-    
-    requestLogs.sort((a: RequestLogEntry, b: RequestLogEntry) => b.timestamp - a.timestamp)
-    
-    if (limit && requestLogs.length > limit) {
-      requestLogs = requestLogs.slice(0, limit)
-    }
-    
-    return requestLogs
+    return this.getRequestLogManager().getRequestLogs(limit, filter)
   }
 
   /**
@@ -952,8 +957,7 @@ class StoreManager {
    */
   getRequestLogById(id: string): RequestLogEntry | undefined {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
-    return requestLogs.find((l: RequestLogEntry) => l.id === id)
+    return this.getRequestLogManager().getRequestLogById(id)
   }
 
   /**
@@ -961,7 +965,7 @@ class StoreManager {
    */
   clearRequestLogs(): void {
     this.ensureInitialized()
-    this.store!.set('requestLogs', [])
+    this.getRequestLogManager().clearRequestLogs()
     this.store!.set('statistics', DEFAULT_STATISTICS)
   }
 
@@ -970,22 +974,7 @@ class StoreManager {
    */
   getRequestLogStats(): { total: number; success: number; error: number; todayTotal: number; todaySuccess: number; todayError: number } {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
-    
-    const today = new Date().toISOString().split('T')[0]
-    const todayStart = new Date(today).getTime()
-    const todayEnd = todayStart + 24 * 60 * 60 * 1000
-    
-    const todayLogs = requestLogs.filter((l: RequestLogEntry) => l.timestamp >= todayStart && l.timestamp < todayEnd)
-    
-    return {
-      total: requestLogs.length,
-      success: requestLogs.filter((l: RequestLogEntry) => l.status === 'success').length,
-      error: requestLogs.filter((l: RequestLogEntry) => l.status === 'error').length,
-      todayTotal: todayLogs.length,
-      todaySuccess: todayLogs.filter((l: RequestLogEntry) => l.status === 'success').length,
-      todayError: todayLogs.filter((l: RequestLogEntry) => l.status === 'error').length,
-    }
+    return this.getRequestLogManager().getRequestLogStats()
   }
 
   /**
@@ -993,36 +982,7 @@ class StoreManager {
    */
   getRequestLogTrend(days: number = 7): { date: string; total: number; success: number; error: number; avgLatency: number }[] {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') as RequestLogEntry[] || []
-    const now = Date.now()
-    const dayMs = 24 * 60 * 60 * 1000
-    const today = new Date().toISOString().split('T')[0]
-    const todayStart = new Date(today).getTime()
-    const trends: { date: string; total: number; success: number; error: number; avgLatency: number }[] = []
-
-    for (let i = days - 1; i >= 0; i--) {
-      const dayStart = todayStart - i * dayMs
-      const dayEnd = dayStart + dayMs
-      const date = new Date(dayStart).toISOString().split('T')[0]
-
-      const dayLogs = requestLogs.filter(
-        (l: RequestLogEntry) => l.timestamp >= dayStart && l.timestamp < dayEnd
-      )
-
-      const successLogs = dayLogs.filter((l: RequestLogEntry) => l.status === 'success')
-      const errorLogs = dayLogs.filter((l: RequestLogEntry) => l.status === 'error')
-      const totalLatency = successLogs.reduce((sum: number, l: RequestLogEntry) => sum + l.latency, 0)
-
-      trends.push({
-        date,
-        total: dayLogs.length,
-        success: successLogs.length,
-        error: errorLogs.length,
-        avgLatency: successLogs.length > 0 ? Math.round(totalLatency / successLogs.length) : 0,
-      })
-    }
-
-    return trends
+    return this.getRequestLogManager().getRequestLogTrend(days)
   }
 
   // ==================== Statistics Operations ====================
@@ -1677,6 +1637,7 @@ class StoreManager {
   clearAll(): void {
     this.ensureInitialized()
     this.store!.clear()
+    this.requestLogManager?.clearRequestLogs()
   }
 
   /**
@@ -1692,7 +1653,7 @@ class StoreManager {
     })
     const config = this.store!.get('config') || DEFAULT_CONFIG
     const logs = this.store!.get('logs') || []
-    const requestLogs = this.store!.get('requestLogs') || []
+    const requestLogs = this.getRequestLogManager().exportRequestLogs()
     const systemPrompts = this.store!.get('systemPrompts') || []
     const sessions = this.store!.get('sessions') || []
     const statistics = this.store!.get('statistics') || DEFAULT_STATISTICS
@@ -1716,6 +1677,13 @@ class StoreManager {
    */
   getStorePath(): string {
     return this.getStoragePath()
+  }
+
+  private getRequestLogManager(): RequestLogManager {
+    if (!this.requestLogManager) {
+      throw new Error('Request log manager is not initialized')
+    }
+    return this.requestLogManager
   }
 }
 
