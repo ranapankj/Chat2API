@@ -36,6 +36,7 @@ import {
 import { BUILTIN_PROMPTS } from '../data/builtin-prompts'
 import { RequestLogManager } from '../requestLogs/manager'
 import { normalizeRequestLogConfig } from '../requestLogs/types'
+import { normalizeToolCallingConfig } from '../../shared/toolCalling'
 import { AppLogManager } from '../appLogs/manager'
 import type { AppLogFilter } from '../appLogs/types'
 
@@ -234,13 +235,20 @@ class StoreManager {
     return config.logRetentionDays * 1000
   }
 
-  private normalizeConfig(config: AppConfig): AppConfig {
-    return {
+  private normalizeConfig(config: Partial<AppConfig>): AppConfig {
+    const rawConfig = {
       ...DEFAULT_CONFIG,
       ...config,
+    }
+    const rawToolCallingConfig = rawConfig.toolCallingConfig ?? rawConfig.toolPromptConfig
+
+    return {
+      ...rawConfig,
       requestLogConfig: normalizeRequestLogConfig(
-        config.requestLogConfig || DEFAULT_REQUEST_LOG_CONFIG,
+        rawConfig.requestLogConfig || DEFAULT_REQUEST_LOG_CONFIG,
       ),
+      toolCallingConfig: normalizeToolCallingConfig(rawToolCallingConfig),
+      toolPromptConfig: undefined,
     }
   }
 
@@ -723,11 +731,22 @@ class StoreManager {
     }
     
     // Deep merge for nested objects
-    if (updates.toolPromptConfig && currentConfig.toolPromptConfig) {
-      newConfig.toolPromptConfig = {
-        ...currentConfig.toolPromptConfig,
-        ...updates.toolPromptConfig,
-      }
+    if (updates.toolCallingConfig || updates.toolPromptConfig) {
+      const incoming = updates.toolCallingConfig ?? updates.toolPromptConfig
+      const incomingRecord = incoming && typeof incoming === 'object' ? incoming as Record<string, unknown> : {}
+      const incomingAdvanced = incomingRecord.advanced && typeof incomingRecord.advanced === 'object'
+        ? incomingRecord.advanced as Record<string, unknown>
+        : {}
+
+      newConfig.toolCallingConfig = normalizeToolCallingConfig({
+        ...currentConfig.toolCallingConfig,
+        ...incomingRecord,
+        advanced: {
+          ...currentConfig.toolCallingConfig.advanced,
+          ...incomingAdvanced,
+        },
+      })
+      newConfig.toolPromptConfig = undefined
     }
     
     if (updates.sessionConfig && currentConfig.sessionConfig) {

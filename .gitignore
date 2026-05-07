@@ -38,6 +38,7 @@ Thumbs.db
 .trae/
 *.swp
 *.swo
+.codex/
 CLAUDE.md
 
 # Environment
